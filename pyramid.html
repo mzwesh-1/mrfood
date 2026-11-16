@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Fibre Hologram Display</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: one full-bleed 3D stage; a quiet control rail on the right (bottom sheet on phones). Single dark look by choice: the piece is a light sculpture in a dim room. */
+:root{
+  color-scheme:dark;
+  --room:#120c0b;
+  --panel:rgba(24,15,16,.78);
+  --line:rgba(255,214,232,.14);
+  --ink:#f6e9ee;
+  --ink-dim:#b89ea8;
+  --fibre:#ff8fd0;
+  --fibre-ink:#2a0a1c;
+  --display:"Space Grotesk","Inter",system-ui,sans-serif;
+  --body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+html,body{height:100%}
+body{background:var(--room);color:var(--ink);font-family:var(--body);font-size:13px;line-height:1.45;overflow:hidden}
+#stage{position:fixed;inset:0;touch-action:none;display:block;width:100%;height:100%;cursor:grab}
+#stage.dragging{cursor:grabbing}
+.vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 45%,transparent 55%,rgba(0,0,0,.55) 100%)}
+
+.masthead{position:fixed;top:env(safe-area-inset-top,0px);left:0;pointer-events:none;
+  padding-block:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:flex;flex-direction:column;gap:4px;max-width:min(420px,100%)}
+.masthead h1{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:-.01em;margin:0;text-wrap:balance}
+.masthead p{margin:0;color:var(--ink-dim);font-size:12px}
+.readout{font-variant-numeric:tabular-nums;color:var(--ink-dim);font-size:11px;letter-spacing:.04em;text-transform:uppercase}
+
+.panel{position:fixed;top:calc(16px + env(safe-area-inset-top,0px));right:max(16px,env(safe-area-inset-right,0px));
+  width:296px;max-height:calc(100% - 32px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));overflow:auto;
+  background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  padding:14px;display:flex;flex-direction:column;gap:14px}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.label{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-dim);font-weight:600}
+.group{display:flex;flex-direction:column;gap:8px}
+.shapes{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.row{display:flex;gap:6px;flex-wrap:wrap}
+.row > *{flex:1 1 0;min-width:0}
+
+button{font:inherit;color:var(--ink);background:rgba(255,214,232,.06);border:1px solid var(--line);border-radius:8px;
+  padding:7px 6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .15s,border-color .15s}
+button:hover{background:rgba(255,214,232,.12)}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--fibre);outline-offset:2px}
+button[aria-pressed="true"]{background:var(--fibre);border-color:var(--fibre);color:var(--fibre-ink);font-weight:600}
+button.primary{border-color:var(--fibre);color:var(--fibre)}
+button.primary:hover{background:var(--fibre);color:var(--fibre-ink)}
+button.ghost{flex:0 0 auto;padding:4px 10px;font-size:12px}
+kbd{font:inherit;font-size:10px;opacity:.6;margin-left:3px}
+
+.slider{display:grid;grid-template-columns:86px 1fr 40px;align-items:center;gap:8px}
+.slider label{color:var(--ink)}
+.slider output{font-variant-numeric:tabular-nums;color:var(--ink-dim);text-align:right;font-size:12px}
+input[type=range]{width:100%;min-width:0;accent-color:var(--fibre);margin:0}
+#hue{accent-color:auto}
+
+details{border-top:1px solid var(--line);padding-top:10px}
+summary{cursor:pointer;color:var(--ink-dim);font-size:12px}
+details ol{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px;color:var(--ink-dim);font-size:12px}
+details b{color:var(--ink);font-weight:600}
+.notice{position:fixed;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--ink-dim)}
+
+@media (max-width:720px){
+  .masthead h1{font-size:17px}
+  .masthead p{display:none}
+  .panel{top:auto;left:0;right:0;bottom:0;width:auto;max-height:46%;border-radius:16px 16px 0 0;border-width:1px 0 0;
+    padding-block:12px calc(12px + env(safe-area-inset-bottom,0px));
+    padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+  .panel.collapsed > :not(.panel-head):not(.keep){display:none}
+}
+@media (min-width:721px){ #collapse{display:none} }
+
+[hidden]{display:none!important}
+body{margin:0;background:#000}
+.vignette,.masthead{display:none}
+#stage{cursor:pointer}
+.panel{z-index:5}
+#guide{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);border:1px dashed rgba(255,214,232,.55);border-radius:4px;pointer-events:none;
+  display:grid;place-items:center;color:var(--ink-dim);font-size:10px;text-align:center;letter-spacing:.06em;text-transform:uppercase}
+.start{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(0,0,0,.86);overflow:auto;
+  padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.card{max-width:380px;display:flex;flex-direction:column;gap:12px}
+.card h2{font-family:var(--display);font-size:24px;margin:0;letter-spacing:-.01em}
+.card ol{margin:0;padding-left:20px;color:var(--ink-dim);font-size:14px;display:flex;flex-direction:column;gap:6px}
+.card button{padding:13px 12px;font-size:15px;border-radius:10px}
+.card button.primary{background:var(--fibre);color:var(--fibre-ink);font-weight:600}
+</style>
+</head>
+<body>
+
+
+<canvas id="stage" aria-label="Interactive 3D light sculpture made of glowing fibres floating above a wooden desk"></canvas>
+<div id="guide" hidden>pyramid tip here</div>
+<div class="start" id="start">
+  <div class="card">
+    <h2>Fibre Hologram Display</h2>
+    <ol>
+      <li>Turn screen brightness to maximum and dim the room.</li>
+      <li>Tap Start, then lay the phone or tablet flat, screen up.</li>
+      <li>Stand the clear pyramid upside down, small end on the dashed square in the middle.</li>
+      <li>Look at the pyramid from the side, at screen height. The ball appears inside it.</li>
+      <li>Tap the screen any time to show or hide the controls.</li>
+    </ol>
+    <button class="primary" id="go" type="button">Start</button>
+  </div>
+</div>
+
+<header class="masthead">
+  <h1>Fibre Hologram</h1>
+  <p>Drag to walk around it. Scroll or pinch to zoom. Run your pointer through the fibres to stir them.</p>
+  <div class="readout" id="readout">starting…</div>
+</header>
+
+<aside class="panel" id="panel" hidden>
+  <div class="panel-head">
+    <span class="label">Form</span>
+    <button class="ghost" id="collapse" type="button" aria-expanded="true">Hide controls</button>
+  </div>
+  <div class="shapes keep" id="shapes"></div>
+
+  <div class="row">
+    <button class="primary" id="burst" type="button">Burst <kbd>space</kbd></button>
+    <button id="auto" type="button" aria-pressed="true">Auto-morph</button>
+  </div>
+
+  <div class="group" hidden>
+    <span class="label">Dragging does</span>
+    <div class="row">
+      <button id="modeOrbit" type="button" aria-pressed="true">Orbit camera</button>
+      <button id="modeStir" type="button" aria-pressed="false">Stir fibres</button>
+    </div>
+    <div class="row">
+      <button id="walk" type="button" aria-pressed="true">Slow walk-around</button>
+      <button id="pause" type="button" aria-pressed="false">Freeze</button>
+    </div>
+  </div>
+
+  <div class="group" id="sliders">
+    <span class="label">Tuning</span>
+  </div>
+
+  <div class="row">
+    <button id="layPyr" type="button" aria-pressed="true">Pyramid, 4 views</button>
+    <button id="laySingle" type="button" aria-pressed="false">Single view</button>
+  </div>
+  <div class="row">
+    <button id="reset" type="button">Reset tuning</button>
+    <button id="full" type="button">Full screen</button>
+    <button id="hide" type="button">Hide</button>
+  </div>
+
+  <details hidden>
+    <summary>How it works</summary>
+    <ol>
+      <li><b>Fibres are chains.</b> Each one is 22 points. Every point chases its place on the current form with a spring.</li>
+      <li><b>Tips are loose.</b> The spring is strong at the root and weak at the tip, so tips lag, whip and trail when the form spins or changes.</li>
+      <li><b>Forms are formulas.</b> Shell, orb, jellyfish and the rest are just functions of “which fibre” and “how far along it”. Morphing blends two of them.</li>
+      <li><b>Burst cuts the springs</b> for a moment and kicks every point outward. The springs then pull the cloud back into shape.</li>
+      <li><b>Glow is a blur.</b> The fibres are drawn again into a small image, blurred, and added on top. A mirrored copy feeds the desk reflection.</li>
+    </ol>
+  </details>
+</aside>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+'use strict';
+const canvas=document.getElementById('stage');
+if(!window.THREE){ fail('The 3D library did not load. Check your connection and reload.'); return; }
+let renderer;
+try{ renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'}); }
+catch(e){ fail('This browser could not start WebGL, which the hologram needs.'); return; }
+function fail(msg){ const d=document.createElement('div'); d.className='notice'; d.textContent=msg; document.body.appendChild(d); }
+
+/* ---------- parameters ---------- */
+const SHAPES=['Shell','Orb','Urchin','Jellyfish','Vortex','Fountain','Torus'];
+const TILT=[0.45,0.5,0.45,0.12,0.18,0.06,0.6];
+const DEFAULTS={img:0.36,gap:0.12,strands:800,size:1,spin:0.9,turb:0.6,loose:0.45,glow:1,pulse:0.7,hue:322};
+const P=Object.assign({},DEFAULTS);
+const reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+const S={shape:0,prev:0,morph:1,auto:!reduce,walk:!reduce,paused:false,mode:'orbit',autoTimer:2.4,release:0};
+
+/* ---------- strands ---------- */
+const K=22, NMAX=1400, CY=0.68;
+const pos=new Float32Array(NMAX*K*3), vel=new Float32Array(NMAX*K*3);
+const aT=new Float32Array(NMAX*K), aS=new Float32Array(NMAX*K);
+const sd=new Float32Array(NMAX*3), sphi=new Float32Array(NMAX), sr=new Float32Array(NMAX), sr2=new Float32Array(NMAX);
+let seed=20261116; function rnd(){ seed|=0; seed=seed+0x6D2B79F5|0; let t=Math.imul(seed^seed>>>15,1|seed); t=t+Math.imul(t^t>>>7,61|t)^t; return((t^t>>>14)>>>0)/4294967296; }
+(function init(){
+  const order=[...Array(NMAX).keys()];
+  for(let i=NMAX-1;i>0;i--){ const j=Math.floor(rnd()*(i+1)); const t=order[i]; order[i]=order[j]; order[j]=t; }
+  const ga=Math.PI*(3-Math.sqrt(5));
+  for(let n=0;n<NMAX;n++){
+    const i=order[n], y=1-2*(n+0.5)/NMAX, r=Math.sqrt(1-y*y), a=n*ga;
+    sd[i*3]=Math.cos(a)*r; sd[i*3+1]=y; sd[i*3+2]=Math.sin(a)*r;
+    sphi[i]=rnd()*Math.PI*2; sr[i]=rnd(); sr2[i]=rnd();
+  }
+  for(let i=0;i<NMAX;i++) for(let j=0;j<K;j++){ aT[i*K+j]=j/(K-1); aS[i*K+j]=sr2[i]; }
+})();
+
+let TX=0,TY=0,TZ=0;
+function shape(id,i,t,time,R){
+  const dx=sd[i*3],dy=sd[i*3+1],dz=sd[i*3+2],phi=sphi[i],r1=sr[i],r2=sr2[i];
+  switch(id){
+    case 0:{ // shell: short dashes lying on a sphere
+      let ex=dz,ez=-dx; const el=Math.hypot(ex,ez)+1e-4; ex/=el; ez/=el;
+      const bx=dy*ez, by=dz*ex-dx*ez, bz=-dy*ex;
+      const a=(t-0.5)*(0.16+0.26*r1), w=Math.sin(t*6+r2*6.283+time*2)*0.04;
+      const x=dx+ex*a+bx*w, y=dy+by*w, z=dz+ez*a+bz*w, l=R/Math.hypot(x,y,z);
+      TX=x*l; TY=y*l; TZ=z*l; break; }
+    case 1:{ // orb: meridians from pole to pole
+      const th=Math.PI*(0.015+0.97*t), s=Math.sin(th)*R*(0.9+0.1*r1);
+      TX=Math.cos(phi)*s; TY=Math.cos(th)*R; TZ=Math.sin(phi)*s; break; }
+    case 2:{ // urchin: straight out of a core
+      const l=R*(0.05+(0.7+0.5*r1)*t);
+      TX=dx*l; TY=dy*l; TZ=dz*l; break; }
+    case 3:{ // jellyfish: pulsing bell with hanging tails
+      const pulse=Math.sin(time*2.2), thMax=Math.PI*(0.5+0.08*pulse), u=Math.min(t/0.55,1), th=u*thMax;
+      let rad=Math.sin(th)*R, y=Math.cos(th)*R*0.85;
+      if(t>0.55){ const q=(t-0.55)/0.45; y-=q*R*(0.8+0.9*r1); rad*=1-0.45*q*(0.6+0.4*pulse); rad+=Math.sin(q*7+time*3+r2*6.283)*0.06*R*q; }
+      TX=Math.cos(phi)*rad; TY=y+0.3*R; TZ=Math.sin(phi)*rad; break; }
+    case 4:{ // vortex: spiral funnel
+      const a=phi+t*(3.5+2*r1), rad=R*(0.06+1.15*Math.pow(t,1.4))*(0.55+0.45*r2);
+      TX=Math.cos(a)*rad; TY=(t-0.5)*1.7*R*(0.7+0.3*r1); TZ=Math.sin(a)*rad; break; }
+    case 5:{ // fountain: fibre-optic lamp spray
+      const a=0.22+0.78*r1, rad=1.25*R*a*Math.pow(t,1.3);
+      TX=Math.cos(phi)*rad; TY=-0.95*R+2.3*R*t-1.55*R*a*t*t; TZ=Math.sin(phi)*rad; break; }
+    default:{ // torus: loops around a ring
+      const A=phi+t*0.8, m=t*6.283+r2*6.283, rr=0.34*R*(0.8+0.2*r1), rad=0.72*R+rr*Math.cos(m);
+      TX=Math.cos(A)*rad; TY=rr*Math.sin(m); TZ=Math.sin(A)*rad; }
+  }
+}
+
+let spinAngle=0, simTime=0;
+const stir={on:false,ox:0,oy:0,oz:0,dx:0,dy:0,dz:1,str:0,vx:0,vy:0,vz:0};
+
+function targetOf(i,t,R,cs,sn,ct,st,w){
+  shape(S.shape,i,t,simTime,R);
+  let x=TX,y=TY,z=TZ;
+  if(w<1){ shape(S.prev,i,t,simTime,R); x=TX+(x-TX)*w; y=TY+(y-TY)*w; z=TZ+(z-TZ)*w; }
+  const x1=x*cs+z*sn, z1=-x*sn+z*cs;
+  TX=x1; TY=y*ct-z1*st+CY; TZ=y*st+z1*ct;
+}
+function ease(x){ return x<0?0:x>1?1:x*x*(3-2*x); }
+
+function settle(){
+  const R=0.5*P.size;
+  for(let i=0;i<NMAX;i++) for(let j=0;j<K;j++){
+    targetOf(i,j/(K-1),R,1,0,1,0,1);
+    const o=(i*K+j)*3; pos[o]=TX; pos[o+1]=TY; pos[o+2]=TZ; vel[o]=vel[o+1]=vel[o+2]=0;
+  }
+}
+settle();
+
+function step(dt){
+  simTime+=dt; spinAngle+=P.spin*dt;
+  S.morph=Math.min(1,S.morph+dt/1.1);
+  S.release=Math.max(0,S.release-dt/0.9);
+  const n=P.strands, R=0.5*P.size, w=ease(S.morph);
+  const tiltAmp=TILT[S.prev]+(TILT[S.shape]-TILT[S.prev])*w;
+  const tilt=tiltAmp*Math.sin(simTime*0.45);
+  const cs=Math.cos(spinAngle), sn=Math.sin(spinAngle), ct=Math.cos(tilt), st=Math.sin(tilt);
+  const kBase=150*(1-P.loose)+14*P.loose, kMul=1-0.97*S.release;
+  const turb=P.turb*2.4, tm=simTime, grav=-2.2*S.release;
+  const so=stir.on&&stir.str>0;
+  for(let i=0;i<n;i++){
+    const ph=sr2[i]*6.283;
+    for(let j=0;j<K;j++){
+      const t=j/(K-1), o=(i*K+j)*3;
+      targetOf(i,t,R,cs,sn,ct,st,w);
+      const px=pos[o],py=pos[o+1],pz=pos[o+2];
+      const k0=kBase*(1-0.88*t), k=k0*kMul, c=0.75*Math.sqrt(k)+0.5;
+      const na=turb*(0.12+t);
+      let ax=k*(TX-px)-c*vel[o]  +na*Math.sin(py*5+tm*1.7+ph);
+      let ay=k*(TY-py)-c*vel[o+1]+na*Math.sin(pz*5+tm*1.3+ph*1.7)+grav;
+      let az=k*(TZ-pz)-c*vel[o+2]+na*Math.sin(px*5+tm*1.1+ph*2.3);
+      if(so){
+        const qx=px-stir.ox,qy=py-stir.oy,qz=pz-stir.oz, s=qx*stir.dx+qy*stir.dy+qz*stir.dz;
+        const ex=qx-stir.dx*s, ey=qy-stir.dy*s, ez=qz-stir.dz*s, d2=ex*ex+ey*ey+ez*ez;
+        if(d2<0.16){ const g=Math.exp(-d2/0.022), inv=stir.str*g/Math.sqrt(d2+1e-4);
+          ax+=ex*inv+stir.vx*g*30; ay+=ey*inv+stir.vy*g*30; az+=ez*inv+stir.vz*g*30; }
+      }
+      let vx=vel[o]+ax*dt, vy=vel[o+1]+ay*dt, vz=vel[o+2]+az*dt;
+      let ny=py+vy*dt;
+      if(ny<0.012){ ny=0.012; vy=-vy*0.35; }
+      pos[o]=px+vx*dt; pos[o+1]=ny; pos[o+2]=pz+vz*dt;
+      vel[o]=vx; vel[o+1]=vy; vel[o+2]=vz;
+    }
+  }
+}
+
+function burst(){
+  S.release=1;
+  for(let i=0;i<P.strands;i++){
+    const kick=0.7+1.5*sr[i];
+    for(let j=0;j<K;j++){
+      const o=(i*K+j)*3, t=j/(K-1);
+      let x=pos[o]+(Math.random()-0.5)*0.3, y=pos[o+1]-CY+(Math.random()-0.5)*0.3, z=pos[o+2]+(Math.random()-0.5)*0.3;
+      const l=(0.35+t)*kick/(Math.hypot(x,y,z)+0.05);
+      vel[o]+=x*l; vel[o+1]+=y*l+0.3; vel[o+2]+=z*l;
+    }
+  }
+}
+function setShape(id){ if(id===S.shape) return; S.prev=S.shape; S.shape=id; S.morph=0; syncUI(); }
+
+/* ---------- rendering ---------- */
+const NOISE=`
+float hash(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
+float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y); }
+float fbm(vec2 p){ float a=0.5,s=0.0; for(int i=0;i<4;i++){ s+=a*vnoise(p); p*=2.03; a*=0.5; } return s; }`;
+const ROOM=`
+float box(vec2 p, vec2 c, vec2 h){ vec2 d=abs(p-c)-h; return smoothstep(0.012,0.0,max(d.x,d.y)); }
+vec3 room(vec3 d){
+  float az=atan(d.z,d.x);
+  vec3 col=mix(vec3(0.13,0.09,0.08),vec3(0.25,0.185,0.16),smoothstep(-0.3,0.6,d.y));
+  col*=0.8+0.2*sin(az*2.0+0.6);
+  col=mix(col,vec3(0.03,0.02,0.018),smoothstep(-0.28,-0.5,d.y));
+  vec2 q=vec2(az,d.y);
+  float f1=box(q,vec2(-1.62,0.13),vec2(0.13,0.11)), f2=box(q,vec2(-2.75,0.15),vec2(0.10,0.13)), f3=box(q,vec2(-1.22,0.02),vec2(0.07,0.05));
+  col=mix(col,vec3(0.025,0.02,0.02),max(f1,max(f2,f3)));
+  col=mix(col,vec3(0.36,0.31,0.30),box(q,vec2(-1.62,0.13),vec2(0.095,0.075)));
+  col=mix(col,vec3(0.34,0.10,0.07),box(q,vec2(-2.75,0.15),vec2(0.07,0.10)));
+  col=mix(col,vec3(0.10,0.14,0.26),box(q,vec2(-1.22,0.02),vec2(0.05,0.03)));
+  float l=max(dot(d,normalize(vec3(-0.62,0.07,-0.76))),0.0);
+  col+=vec3(1.0,0.36,0.16)*(pow(l,260.0)*3.0+pow(l,14.0)*0.30);
+  float da=az+0.78;
+  float v=smoothstep(-0.2,-0.15,d.y)*smoothstep(0.5,0.4,d.y);
+  col+=vec3(1.0,0.08,0.10)*(exp(-da*da/0.00025)*2.2+exp(-da*da/0.04)*0.22)*v;
+  float c=max(dot(d,normalize(vec3(0.25,0.85,0.45))),0.0);
+  col+=vec3(1.0,0.86,0.72)*(smoothstep(0.985,0.99,c)-smoothstep(0.994,0.998,c))*1.4;
+  return col;
+}`;
+
+const camera=new THREE.PerspectiveCamera(40,1,0.05,200);
+const sceneBg=new THREE.Scene(), sceneHolo=new THREE.Scene();
+const fibre=new THREE.Color();
+
+sceneBg.add(new THREE.Mesh(new THREE.SphereGeometry(60,48,24),new THREE.ShaderMaterial({
+  side:THREE.BackSide,depthWrite:false,
+  vertexShader:`varying vec3 vD; void main(){ vD=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:`varying vec3 vD;${ROOM} void main(){ gl_FragColor=vec4(room(normalize(vD)),1.0); }`})));
+
+const tableMat=new THREE.ShaderMaterial({
+  uniforms:{uRefl:{value:null},uRes:{value:new THREE.Vector2(1,1)},uColor:{value:fibre},uGlow:{value:1},uCY:{value:CY}},
+  vertexShader:`varying vec3 vW; varying vec3 vN; void main(){ vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; vN=normal; gl_Position=projectionMatrix*viewMatrix*w; }`,
+  fragmentShader:`uniform sampler2D uRefl; uniform vec2 uRes; uniform vec3 uColor; uniform float uGlow,uCY; varying vec3 vW; varying vec3 vN;${NOISE}${ROOM}
+  void main(){
+    vec3 n=normalize(vN), v=normalize(cameraPosition-vW);
+    vec2 p=vW.xz; if(n.y<0.5) p=vec2(vW.x+vW.z,vW.y*4.0);
+    float g=fbm(vec2(p.x*1.1,p.y*17.0)+fbm(p*1.4)*1.6);
+    float seam=smoothstep(0.0,0.01,abs(fract(p.y/0.8+0.5)-0.5)*0.8);
+    vec3 wood=mix(vec3(0.12,0.058,0.03),vec3(0.42,0.225,0.11),g)*(0.7+0.3*seam);
+    float fres=0.04+0.96*pow(1.0-max(dot(n,v),0.0),5.0);
+    vec3 col=wood*vec3(0.50,0.38,0.33);
+    col+=wood*vec3(1.0,0.45,0.2)*0.5*exp(-length(vW.xz-vec2(-3.0,-1.6))*0.55);
+    col+=room(reflect(-v,n))*(0.05+0.75*fres)*(0.55+0.45*g);
+    if(n.y>0.5){
+      vec3 h=texture2D(uRefl,gl_FragCoord.xy/uRes).rgb;
+      col+=h*(0.22+0.78*fres)*(0.55+0.45*g)*1.3;
+      float d2=dot(vW.xz,vW.xz)+uCY*uCY*0.6;
+      col+=wood*uColor*uGlow*0.55/(1.0+d2*5.0);
+    }
+    gl_FragColor=vec4(col,1.0);
+  }`});
+const table=new THREE.Mesh(new THREE.BoxGeometry(7.6,0.09,3.3),tableMat); table.position.y=-0.045; sceneBg.add(table);
+
+const geo=new THREE.BufferGeometry();
+const posAttr=new THREE.BufferAttribute(pos,3); posAttr.setUsage(THREE.DynamicDrawUsage);
+geo.setAttribute('position',posAttr);
+geo.setAttribute('aT',new THREE.BufferAttribute(aT,1));
+geo.setAttribute('aS',new THREE.BufferAttribute(aS,1));
+const idx=new Uint32Array(NMAX*(K-1)*2);
+for(let i=0,q=0;i<NMAX;i++) for(let j=0;j<K-1;j++){ idx[q++]=i*K+j; idx[q++]=i*K+j+1; }
+geo.setIndex(new THREE.BufferAttribute(idx,1));
+geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,CY,0),50);
+
+const HU={uGain:{value:1},uTime:{value:0},uPulse:{value:P.pulse},uColor:{value:fibre},uProj:{value:500}};
+const HEAD=`attribute float aT; attribute float aS; uniform float uTime,uPulse; varying float vB;
+float pulse(){ return smoothstep(0.80,1.0,fract(aT*1.4-uTime*0.55+aS*7.0)); }`;
+const lineMat=new THREE.ShaderMaterial({uniforms:HU,transparent:true,depthTest:false,depthWrite:false,blending:THREE.AdditiveBlending,
+  vertexShader:HEAD+`void main(){ vB=(0.16+0.84*aT*aT)*(0.5+0.5*fract(aS*13.7))+pulse()*uPulse*1.5; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:`uniform vec3 uColor; uniform float uGain; varying float vB; void main(){ vec3 c=mix(uColor,vec3(1.0,0.94,0.97),clamp(vB*0.38,0.0,0.7)); gl_FragColor=vec4(c*vB*0.55*uGain,1.0); }`});
+const pointMat=new THREE.ShaderMaterial({uniforms:HU,transparent:true,depthTest:false,depthWrite:false,blending:THREE.AdditiveBlending,
+  vertexShader:HEAD+`uniform float uProj; void main(){
+    float p=pulse(); float s=aT>0.999?0.017:(p>0.55?0.009*uPulse:0.0);
+    vB=aT>0.999?1.0:p*0.8;
+    vec4 mv=modelViewMatrix*vec4(position,1.0);
+    gl_PointSize=max(s*uProj*abs(projectionMatrix[1][1])/-mv.z,1.2);
+    gl_Position=s>0.0?projectionMatrix*mv:vec4(2.0,2.0,2.0,1.0); }`,
+  fragmentShader:`uniform vec3 uColor; varying float vB; void main(){ float d=length(gl_PointCoord-0.5); float a=smoothstep(0.5,0.08,d);
+    gl_FragColor=vec4(mix(uColor,vec3(1.0),0.7)*a*vB,1.0); }`});
+const holo=new THREE.Group();
+const lines=new THREE.LineSegments(geo,lineMat), points=new THREE.Points(geo,pointMat);
+lines.frustumCulled=points.frustumCulled=false;
+holo.add(lines,points); sceneHolo.add(holo);
+
+/* post: blur + composite */
+const quadCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1), quadScene=new THREE.Scene();
+const quad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),null); quadScene.add(quad);
+const VQ=`varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }`;
+const blurMat=new THREE.ShaderMaterial({uniforms:{tex:{value:null},uDir:{value:new THREE.Vector2()}},depthTest:false,depthWrite:false,vertexShader:VQ,
+  fragmentShader:`uniform sampler2D tex; uniform vec2 uDir; varying vec2 vUv; void main(){
+    vec3 c=texture2D(tex,vUv).rgb*0.227;
+    c+=(texture2D(tex,vUv+uDir*1.0).rgb+texture2D(tex,vUv-uDir*1.0).rgb)*0.1946;
+    c+=(texture2D(tex,vUv+uDir*2.0).rgb+texture2D(tex,vUv-uDir*2.0).rgb)*0.1216;
+    c+=(texture2D(tex,vUv+uDir*3.0).rgb+texture2D(tex,vUv-uDir*3.0).rgb)*0.054;
+    c+=(texture2D(tex,vUv+uDir*4.0).rgb+texture2D(tex,vUv-uDir*4.0).rgb)*0.0162;
+    gl_FragColor=vec4(c,1.0); }`});
+const addMat=new THREE.ShaderMaterial({uniforms:{tex:{value:null},uAmt:{value:1}},depthTest:false,depthWrite:false,transparent:true,blending:THREE.AdditiveBlending,vertexShader:VQ,
+  fragmentShader:`uniform sampler2D tex; uniform float uAmt; varying vec2 vUv; void main(){ gl_FragColor=vec4(texture2D(tex,vUv).rgb*uAmt,1.0); }`});
+const rtOpt={minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,depthBuffer:false,stencilBuffer:false};
+const rtA=new THREE.WebGLRenderTarget(4,4,rtOpt), rtB=new THREE.WebGLRenderTarget(4,4,rtOpt), rtC=new THREE.WebGLRenderTarget(4,4,rtOpt), rtR=new THREE.WebGLRenderTarget(4,4,rtOpt);
+function blur(src,dst,dx,dy){ blurMat.uniforms.tex.value=src.texture; blurMat.uniforms.uDir.value.set(dx/src.width,dy/src.height); quad.material=blurMat; renderer.setRenderTarget(dst); renderer.render(quadScene,quadCam); }
+
+renderer.autoClear=false; renderer.setClearColor(0x000000,1);
+
+/* ---------- camera ---------- */
+const cam={az:0.42,pol:1.37,r:3.3,ty:0.5};
+const panel=document.getElementById('panel');
+let W=1,H=1,BW=1,BH=1,projScale=1;
+function layout(){
+  W=canvas.clientWidth||innerWidth; H=canvas.clientHeight||innerHeight;
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  renderer.setPixelRatio(dpr); renderer.setSize(W,H,false);
+  BW=renderer.domElement.width; BH=renderer.domElement.height;
+  const hw=Math.max(2,BW>>1), hh=Math.max(2,BH>>1), qw=Math.max(2,BW>>2), qh=Math.max(2,BH>>2);
+  rtA.setSize(hw,hh); rtB.setSize(qw,qh); rtC.setSize(qw,qh); rtR.setSize(qw,qh);
+  tableMat.uniforms.uRes.value.set(BW,BH);
+  camera.aspect=W/H;
+  const pr=panel.getBoundingClientRect(); let ox=0,oy=0;
+  if(W>720) ox=(W-pr.left)/2; else oy=pr.height/2-10;
+  camera.setViewOffset(W,H,ox,oy,W,H);
+  projScale=1/(2*Math.tan(camera.fov*Math.PI/360));
+  cam.fit=W/H<1?Math.min(1.9,0.8/(W/H)+0.25):1;
+}
+function placeCamera(){
+  const r=cam.r*(cam.fit||1), sp=Math.sin(cam.pol);
+  camera.position.set(r*sp*Math.sin(cam.az),cam.ty+r*Math.cos(cam.pol),r*sp*Math.cos(cam.az));
+  camera.lookAt(0,cam.ty,0); camera.updateMatrixWorld();
+}
+
+/* ---------- pointer ---------- */
+const ptrs=new Map(); let pinch=0, lastHit=null, hoverStir=0;
+const v3=new THREE.Vector3(), v3b=new THREE.Vector3();
+function setRay(e,str){
+  const r=canvas.getBoundingClientRect();
+  v3.set((e.clientX-r.left)/r.width*2-1,-((e.clientY-r.top)/r.height*2-1),0.5).unproject(camera);
+  v3.sub(camera.position).normalize();
+  stir.ox=camera.position.x; stir.oy=camera.position.y; stir.oz=camera.position.z;
+  stir.dx=v3.x; stir.dy=v3.y; stir.dz=v3.z; stir.str=str; stir.on=true;
+  const s=-(stir.ox*v3.x+(stir.oy-CY)*v3.y+stir.oz*v3.z);
+  v3b.set(stir.ox+v3.x*s,stir.oy+v3.y*s,stir.oz+v3.z*s);
+  if(lastHit){ stir.vx=(v3b.x-lastHit.x)*0.6+stir.vx*0.4; stir.vy=(v3b.y-lastHit.y)*0.6+stir.vy*0.4; stir.vz=(v3b.z-lastHit.z)*0.6+stir.vz*0.4; }
+  else lastHit=new THREE.Vector3();
+  lastHit.copy(v3b); hoverStir=0.25;
+}
+canvas.addEventListener('pointerdown',e=>{ canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY}); canvas.classList.add('dragging');
+  if(ptrs.size===2){ const a=[...ptrs.values()]; pinch=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y); }
+  if(S.mode==='stir'&&ptrs.size===1){ lastHit=null; setRay(e,26); } });
+canvas.addEventListener('pointermove',e=>{
+  const p=ptrs.get(e.pointerId);
+  if(!p){ if(e.pointerType==='mouse') setRay(e,7); return; }
+  const dx=e.clientX-p.x, dy=e.clientY-p.y; p.x=e.clientX; p.y=e.clientY;
+  if(ptrs.size===2){ const a=[...ptrs.values()], d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y); if(pinch>0) cam.r=clamp(cam.r*pinch/d,1.5,7); pinch=d; return; }
+  if(S.mode==='stir'){ setRay(e,26); return; }
+  cam.az-=dx*0.006; cam.pol=clamp(cam.pol-dy*0.005,0.25,1.5);
+});
+function up(e){ ptrs.delete(e.pointerId); pinch=0; if(!ptrs.size) canvas.classList.remove('dragging'); }
+canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+canvas.addEventListener('pointerleave',()=>{ if(!ptrs.size){ stir.on=false; lastHit=null; } });
+canvas.addEventListener('wheel',e=>{ e.preventDefault(); cam.r=clamp(cam.r*Math.exp(e.deltaY*0.0012),1.5,7); },{passive:false});
+function clamp(x,a,b){ return x<a?a:x>b?b:x; }
+
+/* ---------- UI ---------- */
+const $=id=>document.getElementById(id);
+const shapesEl=$('shapes');
+SHAPES.forEach((name,i)=>{ const b=document.createElement('button'); b.type='button'; b.id='shape'+i; b.textContent=name; b.title=name+' ('+(i+1)+')';
+  b.addEventListener('click',()=>{ S.auto=false; setShape(i); syncUI(); }); shapesEl.appendChild(b); });
+const SL=[['img','Image size',0.15,0.45,0.01,2],['gap','Centre gap',0.03,0.25,0.01,2],['strands','Fibres',100,NMAX,20,0],['size','Size',0.6,1.4,0.01,2],['spin','Spin',-3,3,0.05,2],['turb','Turbulence',0,2,0.01,2],
+  ['loose','Looseness',0,1,0.01,2],['glow','Glow',0,2,0.01,2],['pulse','Light pulses',0,1,0.01,2],['hue','Colour',0,360,1,0]];
+const slidersEl=$('sliders');
+SL.forEach(([key,label,min,max,stepV,dec])=>{
+  const row=document.createElement('div'); row.className='slider';
+  row.innerHTML='<label for="'+key+'">'+label+'</label><input type="range" id="'+key+'" min="'+min+'" max="'+max+'" step="'+stepV+'"><output id="'+key+'Out" for="'+key+'"></output>';
+  slidersEl.appendChild(row);
+  const inp=row.querySelector('input');
+  inp.addEventListener('input',()=>{ P[key]=parseFloat(inp.value); applyParams(); });
+});
+function applyParams(){
+  SL.forEach(([key,,,,,dec])=>{ $(key).value=P[key]; $(key+'Out').textContent=key==='hue'?P.hue+'°':P[key].toFixed(dec); });
+  fibre.setHSL(P.hue/360,1,0.72);
+  document.documentElement.style.setProperty('--fibre','hsl('+P.hue+' 100% 78%)');
+  HU.uPulse.value=P.pulse; tableMat.uniforms.uGlow.value=P.glow;
+  geo.setDrawRange(0,P.strands*(K-1)*2);
+  points.geometry=geo;
+}
+function syncUI(){
+  SHAPES.forEach((_,i)=>$('shape'+i).setAttribute('aria-pressed',String(i===S.shape)));
+  $('auto').setAttribute('aria-pressed',String(S.auto));
+  $('walk').setAttribute('aria-pressed',String(S.walk));
+  $('pause').setAttribute('aria-pressed',String(S.paused));
+  $('modeOrbit').setAttribute('aria-pressed',String(S.mode==='orbit'));
+  $('modeStir').setAttribute('aria-pressed',String(S.mode==='stir'));
+}
+$('burst').addEventListener('click',burst);
+$('auto').addEventListener('click',()=>{ S.auto=!S.auto; S.autoTimer=0.4; syncUI(); });
+$('walk').addEventListener('click',()=>{ S.walk=!S.walk; syncUI(); });
+$('pause').addEventListener('click',()=>{ S.paused=!S.paused; syncUI(); });
+$('modeOrbit').addEventListener('click',()=>{ S.mode='orbit'; syncUI(); });
+$('modeStir').addEventListener('click',()=>{ S.mode='stir'; syncUI(); });
+$('reset').addEventListener('click',()=>{ Object.assign(P,DEFAULTS); applyParams(); });
+$('collapse').addEventListener('click',()=>{ const c=panel.classList.toggle('collapsed'); $('collapse').textContent=c?'Show controls':'Hide controls'; $('collapse').setAttribute('aria-expanded',String(!c)); layout(); });
+window.addEventListener('keydown',e=>{
+  if(e.target&&/INPUT|TEXTAREA/.test(e.target.tagName)) return;
+  if(e.code==='Space'){ e.preventDefault(); burst(); }
+  else if(e.key>='1'&&e.key<=String(SHAPES.length)){ S.auto=false; setShape(parseInt(e.key,10)-1); syncUI(); }
+});
+window.addEventListener('resize',layout);
+if(window.ResizeObserver) new ResizeObserver(layout).observe(panel);
+
+/* ---------- loop ---------- */
+const readout=$('readout'); let last=performance.now(), frames=0, fpsT=0, fps=60;
+function frame(now){
+  requestAnimationFrame(frame);
+  let dt=Math.min((now-last)/1000,0.033); last=now;
+  frames++; fpsT+=dt; if(fpsT>=0.5){ fps=Math.round(frames/fpsT); frames=0; fpsT=0;
+    readout.textContent=P.strands+' fibres · '+(P.strands*K).toLocaleString('en-US')+' points · '+fps+' fps'; }
+  tick(dt); draw();
+}
+function tick(dt){
+  if(S.paused) return;
+  if(S.auto){ S.autoTimer-=dt; if(S.autoTimer<=0){ S.autoTimer=2.6+Math.random()*1.6;
+    let nx; do{ nx=Math.floor(Math.random()*SHAPES.length); }while(nx===S.shape);
+    if(Math.random()<0.4) burst(); setShape(nx); } }
+  stir.str=0; step(dt*0.5); step(dt*0.5);
+  posAttr.needsUpdate=true; HU.uTime.value=simTime;
+}
+/* ---------- display layouts ---------- */
+const q=new URLSearchParams(location.search), CAPTURE=q.has('capture');
+const DSP={layout:q.has('single')||CAPTURE?'single':'pyramid'};
+const vcam=new THREE.PerspectiveCamera(30,1,0.05,50), VD=3.2, guide=$('guide');
+// each view: [dx,dy (direction from screen centre, y up), camera azimuth, which way is "up": 0=+Y 1=-Y 2=+right 3=-right]
+const PYR=[[0,-1,0,1],[1,0,Math.PI/2,2],[0,1,Math.PI,0],[-1,0,Math.PI*1.5,3]];
+function viewList(){
+  const Q=Math.min(BW,BH), cx=BW/2, cy=BH/2;
+  if(DSP.layout==='single'){ const w=Math.min(Q,Q*P.img*2.6); return [[cx-w/2,cy-w/2,w,0,0,false]]; }
+  const g=Q*P.gap, w=Math.min(Q*P.img,Q/2-g), c=g+w/2;
+  return PYR.map(v=>[cx+v[0]*c-w/2,cy+v[1]*c-w/2,w,v[2],v[3],true]);
+}
+function aim(az,up,mirror){
+  const sn=Math.sin(az), cs=Math.cos(az);
+  vcam.position.set(sn*VD,CY,cs*VD);
+  if(up===0) vcam.up.set(0,1,0); else if(up===1) vcam.up.set(0,-1,0); else if(up===2) vcam.up.set(cs,0,-sn); else vcam.up.set(-cs,0,sn);
+  vcam.lookAt(0,CY,0); vcam.updateMatrixWorld();
+  vcam.updateProjectionMatrix(); if(mirror) vcam.projectionMatrix.elements[0]*=-1;
+}
+function draw(){
+  const vs=viewList(), pr=renderer.getPixelRatio(), sc=rtA.width/BW;
+  HU.uGain.value=Math.max(0.3,Math.min(1,vs[0][2]/pr/520));
+  holo.scale.y=1;
+  rtA.viewport.set(0,0,rtA.width,rtA.height); renderer.setRenderTarget(rtA); renderer.clear();
+  for(const v of vs){ aim(v[3],v[4],v[5]); HU.uProj.value=v[2]*sc*0.5;
+    rtA.viewport.set(v[0]*sc,v[1]*sc,v[2]*sc,v[2]*sc); renderer.setRenderTarget(null); renderer.setRenderTarget(rtA); renderer.render(sceneHolo,vcam); }
+  rtA.viewport.set(0,0,rtA.width,rtA.height);
+  blur(rtA,rtB,1.3,0); blur(rtB,rtC,0,1.3); blur(rtC,rtB,2.6,0); blur(rtB,rtC,0,2.6);
+  renderer.setViewport(0,0,W,H); renderer.setRenderTarget(null); renderer.clear();
+  for(const v of vs){ aim(v[3],v[4],v[5]); HU.uProj.value=v[2]*0.5;
+    renderer.setViewport(v[0]/pr,v[1]/pr,v[2]/pr,v[2]/pr); renderer.setRenderTarget(null); renderer.render(sceneHolo,vcam); }
+  renderer.setViewport(0,0,W,H); renderer.setRenderTarget(null);
+  addMat.uniforms.tex.value=rtC.texture; addMat.uniforms.uAmt.value=P.glow*0.9; quad.material=addMat; renderer.render(quadScene,quadCam);
+}
+function syncDisplay(){
+  $('layPyr').setAttribute('aria-pressed',String(DSP.layout==='pyramid')); $('laySingle').setAttribute('aria-pressed',String(DSP.layout==='single'));
+  const g=Math.min(W,H)*P.gap*2; guide.style.width=guide.style.height=g+'px';
+  guide.hidden=panel.hidden||DSP.layout!=='pyramid'||CAPTURE;
+}
+function togglePanel(show){ panel.hidden=show===undefined?!panel.hidden:!show; syncDisplay(); }
+canvas.addEventListener('click',()=>togglePanel());
+$('hide').addEventListener('click',()=>togglePanel(false));
+$('layPyr').addEventListener('click',()=>{ DSP.layout='pyramid'; syncDisplay(); });
+$('laySingle').addEventListener('click',()=>{ DSP.layout='single'; syncDisplay(); });
+$('sliders').addEventListener('input',syncDisplay); $('reset').addEventListener('click',syncDisplay);
+window.addEventListener('resize',syncDisplay);
+function goFull(){ const el=document.documentElement; try{ const p=(el.requestFullscreen||el.webkitRequestFullscreen||function(){}).call(el); if(p&&p.catch) p.catch(()=>{}); }catch(e){} }
+$('full').addEventListener('click',goFull);
+$('go').addEventListener('click',()=>{ $('start').hidden=true; goFull(); togglePanel(true);
+  if(navigator.wakeLock) navigator.wakeLock.request('screen').catch(()=>{}); });
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&$('start').hidden&&navigator.wakeLock) navigator.wakeLock.request('screen').catch(()=>{}); });
+if(CAPTURE){ $('start').hidden=true; S.auto=true; window.__cap={frame(dt){ tick(dt); draw(); }}; }
+applyParams(); syncUI(); layout(); syncDisplay();
+if(!CAPTURE) requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
